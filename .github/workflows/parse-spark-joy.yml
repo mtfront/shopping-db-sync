@@ -1,12 +1,6 @@
 name: Parse Spark Joy Digest
 
 on:
-  workflow_dispatch:
-    inputs:
-      year_month:
-        description: 'Year-month to parse (e.g., 2025-11)'
-        required: true
-        type: string
   schedule:
     # Run weekly on Monday at 00:00 UTC
     - cron: '0 0 * * 1'
@@ -26,16 +20,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Set current year-month
+        run: echo "YEAR_MONTH=$(date +'%Y-%m')" >> $GITHUB_ENV
       
       - name: Parse spark-joy-digest files
-        env:
-          YEAR_MONTH: ${{ github.event.inputs.year_month || '' }}
-        run: |
-          if [ -n "$YEAR_MONTH" ]; then
-            node parse-spark-joy.js "$YEAR_MONTH"
-          else
-            # Auto-detect year-month from current date or changed files
-            CURRENT_YM=$(date +%Y-%m)
-            node parse-spark-joy.js "$CURRENT_YM"
-          fi
-
+        run: node parse-spark-joy.js "$YEAR_MONTH"
+          
