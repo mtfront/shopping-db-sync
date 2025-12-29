@@ -472,7 +472,7 @@ async function main() {
           entry.source = url;
           entry.yearMonth = yearMonth;
           if (frontmatterUrl) {
-            entry.postUrl = `https://blog.douchi.space${frontmatterUrl}`;
+            entry.postUrl = `${URL_PREFIX}${frontmatterUrl}${URL_SUFFIX}`;
           }
         });
         
