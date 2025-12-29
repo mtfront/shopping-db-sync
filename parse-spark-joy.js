@@ -5,14 +5,20 @@
  * Extracts entries from the "物" section with title, link, and description
  */
 
+// Load environment variables from .env file (only in local development)
+require('dotenv').config();
+
 const https = require('https');
 const { URL } = require('url');
+const { Client } = require('@notionhq/client');
 
 // Configuration
-const GITHUB_REPO = process.env.GITHUB_REPO || 'mtfront/mtfront';
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-const BASE_PATH = process.env.BASE_PATH || 'content/posts';
+const GITHUB_REPO = 'mtfront/mtfront';
+const GITHUB_BRANCH = 'main';
+const BASE_PATH = 'content/posts';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || null;
+const NOTION_TOKEN = process.env.NOTION_TOKEN || null;
+const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || null;
 
 /**
  * Fetch content from a URL
@@ -39,6 +45,9 @@ function fetchUrl(url, options = {}) {
         reject(new Error(`Failed to fetch ${url}: ${res.statusCode} ${res.statusMessage}`));
         return;
       }
+      
+      // Set encoding to UTF-8 to properly handle multi-byte characters
+      res.setEncoding('utf8');
       
       let data = '';
       res.on('data', (chunk) => {
@@ -82,6 +91,40 @@ async function fetchFileList(year, month, token = null) {
 }
 
 /**
+ * Extract rating from title and map to numeric value
+ * 🤩=5, 👍=4, 🤷=3, 👎=2, 🤮=1
+ */
+function extractRating(title) {
+  const ratingMap = {
+    '🤩': 5,
+    '👍': 4,
+    '🤷': 3,
+    '👎': 2,
+    '🤮': 1
+  };
+  
+  for (const [emoji, rating] of Object.entries(ratingMap)) {
+    if (title.includes(emoji)) {
+      return rating;
+    }
+  }
+  
+  return 3; // default rating to 3
+}
+
+/**
+ * Remove rating emojis from title
+ */
+function cleanTitle(title) {
+  const ratingEmojis = ['🤩', '👍', '🤷', '👎', '🤮'];
+  let cleaned = title;
+  for (const emoji of ratingEmojis) {
+    cleaned = cleaned.replace(new RegExp(emoji, 'g'), '');
+  }
+  return cleaned.trim();
+}
+
+/**
  * Parse markdown content to extract "物" section entries
  */
 function parseWuSection(content) {
@@ -108,6 +151,7 @@ function parseWuSection(content) {
       if (currentEntry) {
         currentEntry.description = entryLines.join(' ').trim();
         entries.push(currentEntry);
+        currentEntry = null; // Clear to prevent duplicate save at end
       }
       break;
     }
@@ -131,11 +175,13 @@ function parseWuSection(content) {
       }
       
       // Start new entry from heading
+      const rawTitle = headingMatch[1].trim();
+      const cleanTitleText = cleanTitle(rawTitle);
       currentEntry = {
-        title: headingMatch[1].trim(),
+        title: cleanTitleText,
         link: headingMatch[2].trim(),
-        linkText: headingMatch[1].trim(), // Use title as link text for headings
-        description: ''
+        description: '',
+        rating: extractRating(rawTitle)
       };
       entryLines = [];
     } else if (bulletMatch) {
@@ -146,11 +192,13 @@ function parseWuSection(content) {
       }
       
       // Start new entry from bullet point
+      const rawBulletTitle = bulletMatch[1].trim();
+      const cleanBulletTitle = cleanTitle(rawBulletTitle);
       currentEntry = {
-        title: bulletMatch[1].trim(),
+        title: cleanBulletTitle,
         link: bulletMatch[3] ? bulletMatch[3].trim() : null,
-        linkText: bulletMatch[2] ? bulletMatch[2].trim() : null,
-        description: ''
+        description: '',
+        rating: extractRating(rawBulletTitle)
       };
       entryLines = [];
       
@@ -172,19 +220,23 @@ function parseWuSection(content) {
           const newBulletMatch = trimmedLine.match(/^-\s*`([^`]+)`(?:\s+\[([^\]]+)\]\(([^)]+)\))?\s*(.*)$/);
           
           if (newHeadingMatch) {
+            const rawNewTitle = newHeadingMatch[1].trim();
+            const cleanNewTitle = cleanTitle(rawNewTitle);
             currentEntry = {
-              title: newHeadingMatch[1].trim(),
+              title: cleanNewTitle,
               link: newHeadingMatch[2].trim(),
-              linkText: newHeadingMatch[1].trim(),
-              description: ''
+              description: '',
+              rating: extractRating(rawNewTitle)
             };
             entryLines = [];
           } else if (newBulletMatch) {
+            const rawNewBulletTitle = newBulletMatch[1].trim();
+            const cleanNewBulletTitle = cleanTitle(rawNewBulletTitle);
             currentEntry = {
-              title: newBulletMatch[1].trim(),
+              title: cleanNewBulletTitle,
               link: newBulletMatch[3] ? newBulletMatch[3].trim() : null,
-              linkText: newBulletMatch[2] ? newBulletMatch[2].trim() : null,
-              description: ''
+              description: '',
+              rating: extractRating(rawNewBulletTitle)
             };
             entryLines = [];
             if (newBulletMatch[4] && newBulletMatch[4].trim()) {
@@ -212,6 +264,128 @@ function parseWuSection(content) {
   }
   
   return entries;
+}
+
+/**
+ * Add entries to Notion database
+ */
+async function addToNotion(entries) {
+  if (!NOTION_TOKEN || !NOTION_DATABASE_ID) {
+    console.log('Notion integration skipped: NOTION_TOKEN or NOTION_DATABASE_ID not set');
+    return;
+  }
+
+  const notion = new Client({ auth: NOTION_TOKEN });
+
+  // Fetch existing pages to check for duplicates
+  const existingPages = new Map();
+  try {
+    let hasMore = true;
+    let startCursor = undefined;
+    
+    while (hasMore) {
+      const response = await notion.databases.query({
+        database_id: NOTION_DATABASE_ID,
+        start_cursor: startCursor,
+        page_size: 100
+      });
+      
+      for (const page of response.results) {
+        const titleProperty = page.properties['Name'];
+        if (titleProperty && titleProperty.title && titleProperty.title.length > 0) {
+          const title = titleProperty.title[0].plain_text;
+          existingPages.set(title, page.id);
+        }
+      }
+      
+      hasMore = response.has_more;
+      startCursor = response.next_cursor;
+    }
+  } catch (error) {
+    console.error(`  ⚠ Failed to fetch existing pages: ${error.message}`);
+  }
+
+  for (const entry of entries) {
+    try {
+      const entryTitle = entry.title || 'Untitled';
+      const existingPageId = existingPages.get(entryTitle);
+      
+      const properties = {};
+
+      // Add rating (推荐度) if present - map to select option
+      if (entry.rating !== null && entry.rating !== undefined) {
+        const ratingMap = {
+          5: '🤩',
+          4: '👍',
+          3: '🤷',
+          2: '👎',
+          1: '🤮'
+        };
+        const ratingOption = ratingMap[entry.rating];
+        if (ratingOption) {
+          properties['推荐度'] = {
+            select: {
+              name: ratingOption
+            }
+          };
+        }
+      }
+
+      // Add link (购买链接) if present
+      if (entry.link) {
+        properties['购买链接'] = {
+          url: entry.link
+        };
+      }
+
+      // Only add description (简介) if entry doesn't exist
+      if (!existingPageId && entry.description) {
+        properties['简介'] = {
+          rich_text: [
+            {
+              text: {
+                content: entry.description
+              }
+            }
+          ]
+        };
+      }
+
+      if (existingPageId) {
+        // Update existing page (without description)
+        if (Object.keys(properties).length > 0) {
+          await notion.pages.update({
+            page_id: existingPageId,
+            properties: properties
+          });
+          console.log(`  ↻ Updated in Notion: ${entryTitle} (description preserved)`);
+        } else {
+          console.log(`  ⊘ Skipped (exists, no changes): ${entryTitle}`);
+        }
+      } else {
+        // Create new page
+        properties['Name'] = {
+          title: [
+            {
+              text: {
+                content: entryTitle
+              }
+            }
+          ]
+        };
+        
+        await notion.pages.create({
+          parent: {
+            database_id: NOTION_DATABASE_ID
+          },
+          properties: properties
+        });
+        console.log(`  ✓ Added to Notion: ${entryTitle}`);
+      }
+    } catch (error) {
+      console.error(`  ✗ Failed to process "${entry.title}" in Notion: ${error.message}`);
+    }
+  }
 }
 
 /**
@@ -316,6 +490,12 @@ async function main() {
   
   // Also output summary
   console.log(`\nTotal entries found: ${allEntries.length}`);
+  
+  // Add to Notion if configured
+  if (allEntries.length > 0) {
+    console.log('\n=== Adding to Notion ===');
+    await addToNotion(allEntries);
+  }
 }
 
 // Run if executed directly

@@ -8,8 +8,8 @@ on:
         required: true
         type: string
   schedule:
-    # Run monthly on the 1st at 00:00 UTC
-    - cron: '0 0 1 * *'
+    # Run weekly on Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
   push:
     paths:
       - 'content/posts/**/*spark-joy-digest*.md'
@@ -29,8 +29,6 @@ jobs:
       
       - name: Parse spark-joy-digest files
         env:
-          GITHUB_REPO: ${{ github.repository || 'mtfront/mtfront' }}
-          GITHUB_BRANCH: ${{ github.ref_name || 'main' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           YEAR_MONTH: ${{ github.event.inputs.year_month || '' }}
         run: |
@@ -44,8 +42,6 @@ jobs:
       
       - name: Save results
         env:
-          GITHUB_REPO: ${{ github.repository || 'mtfront/mtfront' }}
-          GITHUB_BRANCH: ${{ github.ref_name || 'main' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p output

@@ -19,21 +19,35 @@ node parse-spark-joy.js https://raw.githubusercontent.com/mtfront/mtfront/main/c
 
 ### Environment Variables
 
+Environment variables can be set via:
+- `.env` file (loaded automatically when running locally)
+- System environment variables (takes precedence over `.env`)
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_REPO` | Repository `owner/repo` | `mtfront/mtfront` |
-| `GITHUB_BRANCH` | Branch name | `main` |
-| `BASE_PATH` | Posts directory path | `content/posts` |
 | `GITHUB_TOKEN` | GitHub token (for private repos) | `null` |
+| `NOTION_TOKEN` | Notion API token | `null` |
+| `NOTION_DATABASE_ID` | Notion database ID | `null` |
+
+Create a `.env` file in the project root (see `.env.example` for template).
 
 ### GitHub Actions
 
 The workflow (`.github/workflows/parse-spark-joy.yml`) can be:
 - **Manually triggered** with a year-month parameter
-- **Scheduled** monthly on the 1st at 00:00 UTC
+- **Scheduled** weekly on Monday at 00:00 UTC
 - **Auto-triggered** on pushes to `*spark-joy-digest*.md` files
 
 Results are saved as workflow artifacts.
+
+### Notion Integration
+
+If `NOTION_TOKEN` and `NOTION_DATABASE_ID` are set, parsed entries are automatically added to the Notion database with the following field mappings:
+
+- `title` → **Name** (Title field)
+- `rating` → **推荐度** (Number field)
+- `link` → **购买链接** (URL field)
+- `description` → **简介** (Rich text field)
 
 ## Input Format
 
@@ -58,8 +72,8 @@ JSON array with entries:
   {
     "title": "Item Title",
     "link": "https://example.com",
-    "linkText": "Link Text",
     "description": "Description text",
+    "rating": 5,
     "source": "https://raw.githubusercontent.com/...",
     "yearMonth": "2025-11"
   }
@@ -69,3 +83,4 @@ JSON array with entries:
 ## Requirements
 
 - Node.js 14.0.0+
+- `npm install` to install dependencies (including `@notionhq/client`)
