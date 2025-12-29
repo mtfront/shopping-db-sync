@@ -13,8 +13,7 @@ const { URL } = require('url');
 const { Client } = require('@notionhq/client');
 
 // Configuration
-const GITHUB_REPO = process.env.GITHUB_REPO || null;
-const GITHUB_BRANCH = 'main';
+const REPO_NAME = process.env.REPO_NAME || null;
 const BASE_PATH = 'content/posts';
 const NOTION_TOKEN = process.env.NOTION_TOKEN || null;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || null;
@@ -68,7 +67,7 @@ function fetchUrl(url, options = {}) {
  * Fetch list of files from GitHub API
  */
 async function fetchFileList(year, month) {
-  const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${BASE_PATH}/${year}-${month}`;
+  const url = `https://api.github.com/repos/${REPO_NAME}/contents/${BASE_PATH}/${year}-${month}`;
   
   try {
     const response = await fetchUrl(url);
@@ -411,8 +410,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (GITHUB_REPO == null) {
-    console.error('GITHUB_REPO is not set');
+  if (REPO_NAME == null) {
+    console.error('REPO_NAME is not set');
     process.exit(1);
   }
   
