@@ -1,0 +1,19 @@
+# Cursor Rules for shopping-db-sync
+
+## File Modification Rules
+
+- **DO NOT modify `.env` files** - These contain user-specific configuration and secrets
+- Always use `.env.example` as a template if environment variable examples are needed
+- When adding new environment variables, update `.env.example` and README.md, but never modify the actual `.env` file
+
+## Code Style
+
+- Use Node.js built-in modules when possible
+- Follow existing code patterns and structure
+- Maintain UTF-8 encoding support for international characters
+
+## Git Ignore
+
+- `.env` is already in `.gitignore` - never commit it
+- Always respect `.gitignore` rules
+

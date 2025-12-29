@@ -25,7 +25,7 @@ Environment variables can be set via:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_TOKEN` | GitHub token (for private repos) | `null` |
+| `GITHUB_REPO` | GitHub repository `owner/repo` | `mtfront/mtfront` |
 | `NOTION_TOKEN` | Notion API token | `null` |
 | `NOTION_DATABASE_ID` | Notion database ID | `null` |
 

@@ -13,10 +13,9 @@ const { URL } = require('url');
 const { Client } = require('@notionhq/client');
 
 // Configuration
-const GITHUB_REPO = 'mtfront/mtfront';
+const GITHUB_REPO = process.env.GITHUB_REPO || null;
 const GITHUB_BRANCH = 'main';
 const BASE_PATH = 'content/posts';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || null;
 const NOTION_TOKEN = process.env.NOTION_TOKEN || null;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || null;
 
@@ -66,11 +65,11 @@ function fetchUrl(url, options = {}) {
 /**
  * Fetch list of files from GitHub API
  */
-async function fetchFileList(year, month, token = null) {
+async function fetchFileList(year, month) {
   const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${BASE_PATH}/${year}-${month}`;
   
   try {
-    const response = await fetchUrl(url, { token });
+    const response = await fetchUrl(url);
     const files = JSON.parse(response);
     
     // Handle both file objects and arrays
@@ -314,21 +313,11 @@ async function addToNotion(entries) {
 
       // Add rating (推荐度) if present - map to select option
       if (entry.rating !== null && entry.rating !== undefined) {
-        const ratingMap = {
-          5: '🤩',
-          4: '👍',
-          3: '🤷',
-          2: '👎',
-          1: '🤮'
+        properties['推荐度'] = {
+          select: {
+            name: entry.rating.toString()
+          }
         };
-        const ratingOption = ratingMap[entry.rating];
-        if (ratingOption) {
-          properties['推荐度'] = {
-            select: {
-              name: ratingOption
-            }
-          };
-        }
       }
 
       // Add link (购买链接) if present
@@ -352,16 +341,7 @@ async function addToNotion(entries) {
       }
 
       if (existingPageId) {
-        // Update existing page (without description)
-        if (Object.keys(properties).length > 0) {
-          await notion.pages.update({
-            page_id: existingPageId,
-            properties: properties
-          });
-          console.log(`  ↻ Updated in Notion: ${entryTitle} (description preserved)`);
-        } else {
-          console.log(`  ⊘ Skipped (exists, no changes): ${entryTitle}`);
-        }
+        console.log(`  ⊘ Skipped (exists, no changes): ${entryTitle}`);
       } else {
         // Create new page
         properties['Name'] = {
@@ -398,7 +378,11 @@ async function main() {
     console.error('Usage: node parse-spark-joy.js <year-month> [year-month2] ...');
     console.error('   or: node parse-spark-joy.js <url>');
     console.error('Example: node parse-spark-joy.js 2025-11');
-    console.error('Example: node parse-spark-joy.js https://raw.githubusercontent.com/mtfront/mtfront/main/content/posts/2025-11/6-spark-joy-digest-2025-11.md');
+    process.exit(1);
+  }
+
+  if (GITHUB_REPO == null) {
+    console.error('GITHUB_REPO is not set');
     process.exit(1);
   }
   
@@ -409,7 +393,7 @@ async function main() {
     if (arg.startsWith('http://') || arg.startsWith('https://')) {
       try {
         console.log(`Processing URL: ${arg}...`);
-        const content = await fetchUrl(arg, { token: GITHUB_TOKEN });
+        const content = await fetchUrl(arg);
         const entries = parseWuSection(content);
         
         entries.forEach(entry => {
@@ -436,25 +420,33 @@ async function main() {
     console.log(`Processing ${yearMonth}...`);
     
     // Try to fetch file list first
-    const fileUrls = await fetchFileList(year, month, GITHUB_TOKEN);
+    let urls = await fetchFileList(year, month);
     
-    // If file list fetch fails, try direct URL pattern
-    let urls = fileUrls;
+    // If file list fetch fails, try to fetch directory listing and find matching files
     if (urls.length === 0) {
-      // Try common patterns
-      const patterns = [
-        `${year}-${month}/6-spark-joy-digest-${year}-${month}.md`,
-        `${year}-${month}/spark-joy-digest-${year}-${month}.md`,
-      ];
-      
-      for (const pattern of patterns) {
-        const testUrl = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/${BASE_PATH}/${pattern}`;
+      try {
+        const dirUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${BASE_PATH}/${year}-${month}`;
+        const dirResponse = await fetchUrl(dirUrl);
+        const dirFiles = JSON.parse(dirResponse);
+        const fileList = Array.isArray(dirFiles) ? dirFiles : [dirFiles];
+        
+        // Find files matching *-spark-joy-digest-yyyy-mm.md pattern
+        const pattern = new RegExp(`.*-spark-joy-digest-${year}-${month}\\.md$`);
+        const matchingFiles = fileList.filter(file => 
+          file.name && pattern.test(file.name) && file.download_url
+        );
+        
+        if (matchingFiles.length > 0) {
+          urls = matchingFiles.map(file => file.download_url);
+        }
+      } catch (e) {
+        // If API fetch fails, try fallback pattern without prefix
+        const fallbackUrl = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/${BASE_PATH}/${year}-${month}/spark-joy-digest-${year}-${month}.md`;
         try {
-          await fetchUrl(testUrl, { token: GITHUB_TOKEN });
-          urls = [testUrl];
-          break;
-        } catch (e) {
-          // Continue to next pattern
+          await fetchUrl(fallbackUrl);
+          urls = [fallbackUrl];
+        } catch (fallbackError) {
+          // Continue to error handling below
         }
       }
     }
@@ -468,7 +460,7 @@ async function main() {
     for (const url of urls) {
       try {
         console.log(`  Fetching ${url}...`);
-        const content = await fetchUrl(url, { token: GITHUB_TOKEN });
+        const content = await fetchUrl(url);
         const entries = parseWuSection(content);
         
         entries.forEach(entry => {
