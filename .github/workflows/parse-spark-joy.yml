@@ -1,0 +1,67 @@
+name: Parse Spark Joy Digest
+
+on:
+  workflow_dispatch:
+    inputs:
+      year_month:
+        description: 'Year-month to parse (e.g., 2025-11)'
+        required: true
+        type: string
+  schedule:
+    # Run monthly on the 1st at 00:00 UTC
+    - cron: '0 0 1 * *'
+  push:
+    paths:
+      - 'content/posts/**/*spark-joy-digest*.md'
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Parse spark-joy-digest files
+        env:
+          GITHUB_REPO: ${{ github.repository || 'mtfront/mtfront' }}
+          GITHUB_BRANCH: ${{ github.ref_name || 'main' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          YEAR_MONTH: ${{ github.event.inputs.year_month || '' }}
+        run: |
+          if [ -n "$YEAR_MONTH" ]; then
+            node parse-spark-joy.js "$YEAR_MONTH"
+          else
+            # Auto-detect year-month from current date or changed files
+            CURRENT_YM=$(date +%Y-%m)
+            node parse-spark-joy.js "$CURRENT_YM"
+          fi
+      
+      - name: Save results
+        env:
+          GITHUB_REPO: ${{ github.repository || 'mtfront/mtfront' }}
+          GITHUB_BRANCH: ${{ github.ref_name || 'main' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p output
+          YEAR_MONTH="${{ github.event.inputs.year_month || '' }}"
+          if [ -n "$YEAR_MONTH" ]; then
+            node parse-spark-joy.js "$YEAR_MONTH" > output/entries.json 2>&1 || true
+          else
+            CURRENT_YM=$(date +%Y-%m)
+            node parse-spark-joy.js "$CURRENT_YM" > output/entries.json 2>&1 || true
+          fi
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parsed-entries
+          path: output/entries.json
+          retention-days: 30
+

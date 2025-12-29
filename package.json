@@ -1,0 +1,21 @@
+{
+  "name": "shopping-db-sync",
+  "version": "1.0.0",
+  "description": "Parse spark-joy-digest markdown files from GitHub",
+  "main": "parse-spark-joy.js",
+  "scripts": {
+    "parse": "node parse-spark-joy.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "github",
+    "markdown",
+    "parser"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+
