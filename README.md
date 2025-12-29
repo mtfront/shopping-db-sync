@@ -14,7 +14,7 @@ node parse-spark-joy.js 2025-11
 node parse-spark-joy.js 2025-11 2025-10
 
 # Parse by direct URL
-node parse-spark-joy.js https://raw.githubusercontent.com/mtfront/mtfront/main/content/posts/2025-11/6-spark-joy-digest-2025-11.md
+node parse-spark-joy.js githublink_6-spark-joy-digest-2025-11.md
 ```
 
 ### Environment Variables
@@ -25,7 +25,7 @@ Environment variables can be set via:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_REPO` | GitHub repository `owner/repo` | `mtfront/mtfront` |
+| `GITHUB_REPO` | GitHub repository `owner/repo` | `null` |
 | `NOTION_TOKEN` | Notion API token | `null` |
 | `NOTION_DATABASE_ID` | Notion database ID | `null` |
 

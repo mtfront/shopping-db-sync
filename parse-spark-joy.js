@@ -18,6 +18,8 @@ const GITHUB_BRANCH = 'main';
 const BASE_PATH = 'content/posts';
 const NOTION_TOKEN = process.env.NOTION_TOKEN || null;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || null;
+const URL_PREFIX = 'https://blog.douchi.space';
+const URL_SUFFIX = '?utm_source=notion_shopping';
 
 /**
  * Fetch content from a URL
@@ -124,13 +126,34 @@ function cleanTitle(title) {
 }
 
 /**
+ * Extract frontmatter URL from markdown content
+ */
+function extractFrontmatterUrl(content) {
+  // Frontmatter is between --- delimiters at the start
+  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!frontmatterMatch) {
+    return null;
+  }
+  
+  const frontmatter = frontmatterMatch[1];
+  // Look for url: field (with or without quotes)
+  const urlMatch = frontmatter.match(/^url:\s*(.+)$/m);
+  if (urlMatch) {
+    // Remove quotes if present and trim
+    return urlMatch[1].trim().replace(/^["']|["']$/g, '');
+  }
+  
+  return null;
+}
+
+/**
  * Parse markdown content to extract "物" section entries
  */
-function parseWuSection(content) {
+function parseStuffSection(content) {
   const lines = content.split('\n');
   const entries = [];
   
-  let inWuSection = false;
+  let inStuffSection = false;
   let currentEntry = null;
   let entryLines = [];
   
@@ -140,12 +163,12 @@ function parseWuSection(content) {
     
     // Check if we're entering the "物" section
     if (trimmedLine === '## 物' || trimmedLine.startsWith('## 物')) {
-      inWuSection = true;
+      inStuffSection = true;
       continue;
     }
     
     // Check if we're leaving the "物" section (next ## heading)
-    if (inWuSection && trimmedLine.startsWith('## ') && !trimmedLine.startsWith('## 物')) {
+    if (inStuffSection && trimmedLine.startsWith('## ') && !trimmedLine.startsWith('## 物')) {
       // Save last entry if exists
       if (currentEntry) {
         currentEntry.description = entryLines.join(' ').trim();
@@ -155,7 +178,7 @@ function parseWuSection(content) {
       break;
     }
     
-    if (!inWuSection) continue;
+    if (!inStuffSection) continue;
     
     // Skip empty lines at the start of section
     if (!trimmedLine && !currentEntry) continue;
@@ -327,6 +350,13 @@ async function addToNotion(entries) {
         };
       }
 
+      // Add post URL if present
+      if (entry.postUrl) {
+        properties['详细测评'] = {
+          url: entry.postUrl
+        };
+      }
+
       // Only add description (简介) if entry doesn't exist
       if (!existingPageId && entry.description) {
         properties['简介'] = {
@@ -394,10 +424,14 @@ async function main() {
       try {
         console.log(`Processing URL: ${arg}...`);
         const content = await fetchUrl(arg);
-        const entries = parseWuSection(content);
+        const frontmatterUrl = extractFrontmatterUrl(content);
+        const entries = parseStuffSection(content);
         
         entries.forEach(entry => {
           entry.source = arg;
+          if (frontmatterUrl) {
+            entry.postUrl = `${URL_PREFIX}${frontmatterUrl}${URL_SUFFIX}${URL_SUFFIX}`;
+          }
         });
         
         allEntries.push(...entries);
@@ -422,35 +456,6 @@ async function main() {
     // Try to fetch file list first
     let urls = await fetchFileList(year, month);
     
-    // If file list fetch fails, try to fetch directory listing and find matching files
-    if (urls.length === 0) {
-      try {
-        const dirUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${BASE_PATH}/${year}-${month}`;
-        const dirResponse = await fetchUrl(dirUrl);
-        const dirFiles = JSON.parse(dirResponse);
-        const fileList = Array.isArray(dirFiles) ? dirFiles : [dirFiles];
-        
-        // Find files matching *-spark-joy-digest-yyyy-mm.md pattern
-        const pattern = new RegExp(`.*-spark-joy-digest-${year}-${month}\\.md$`);
-        const matchingFiles = fileList.filter(file => 
-          file.name && pattern.test(file.name) && file.download_url
-        );
-        
-        if (matchingFiles.length > 0) {
-          urls = matchingFiles.map(file => file.download_url);
-        }
-      } catch (e) {
-        // If API fetch fails, try fallback pattern without prefix
-        const fallbackUrl = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/${BASE_PATH}/${year}-${month}/spark-joy-digest-${year}-${month}.md`;
-        try {
-          await fetchUrl(fallbackUrl);
-          urls = [fallbackUrl];
-        } catch (fallbackError) {
-          // Continue to error handling below
-        }
-      }
-    }
-    
     if (urls.length === 0) {
       console.error(`No files found for ${yearMonth}`);
       continue;
@@ -461,11 +466,15 @@ async function main() {
       try {
         console.log(`  Fetching ${url}...`);
         const content = await fetchUrl(url);
-        const entries = parseWuSection(content);
+        const frontmatterUrl = extractFrontmatterUrl(content);
+        const entries = parseStuffSection(content);
         
         entries.forEach(entry => {
           entry.source = url;
           entry.yearMonth = yearMonth;
+          if (frontmatterUrl) {
+            entry.postUrl = `https://blog.douchi.space${frontmatterUrl}`;
+          }
         });
         
         allEntries.push(...entries);
@@ -476,17 +485,34 @@ async function main() {
     }
   }
   
+  // Remove duplicates based on title (keep first occurrence)
+  const seenTitles = new Set();
+  const uniqueEntries = [];
+  for (const entry of allEntries) {
+    const entryKey = entry.title;
+    if (!seenTitles.has(entryKey)) {
+      seenTitles.add(entryKey);
+      uniqueEntries.push(entry);
+    } else {
+      console.log(`  ⚠ Skipped duplicate: ${entry.title}`);
+    }
+  }
+  
   // Output results as JSON
   console.log('\n=== Results ===');
-  console.log(JSON.stringify(allEntries, null, 2));
+  console.log(JSON.stringify(uniqueEntries, null, 2));
   
   // Also output summary
-  console.log(`\nTotal entries found: ${allEntries.length}`);
+  console.log(`\nTotal entries found: ${allEntries.length} (${allEntries.length - uniqueEntries.length} duplicates removed)`);
+  console.log(`Unique entries: ${uniqueEntries.length}`);
   
   // Add to Notion if configured
-  if (allEntries.length > 0) {
+  if (uniqueEntries.length > 0) {
     console.log('\n=== Adding to Notion ===');
-    await addToNotion(allEntries);
+    await addToNotion(uniqueEntries);
+  } else {
+    console.log('No entries found');
+    process.exit(0);
   }
 }
 
@@ -498,5 +524,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseWuSection, fetchUrl };
+module.exports = { parseStuffSection, fetchUrl };
 
