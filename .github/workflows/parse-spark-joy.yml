@@ -35,15 +35,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Set current year-month (auto)
-        run: echo "YEAR_MONTH=$(date +'%Y-%m')" >> $GITHUB_ENV
-
-      - name: Override with manual input if provided
+      - name: Set year-months (current and last month)
         run: |
           if [ -n "${{ github.event.inputs.year_month }}" ]; then
-            echo "YEAR_MONTH=${{ github.event.inputs.year_month }}" >> $GITHUB_ENV
+            # Manual trigger: use only the specified month
+            echo "YEAR_MONTHS=${{ github.event.inputs.year_month }}" >> $GITHUB_ENV
+          else
+            # Scheduled/auto trigger: process current and last month
+            CURRENT_YM=$(date +'%Y-%m')
+            # Calculate last month (works on both Linux and macOS)
+            LAST_YM=$(date -d "1 month ago" +'%Y-%m' 2>/dev/null || date -v-1m +'%Y-%m' 2>/dev/null || date --date="1 month ago" +'%Y-%m')
+            echo "YEAR_MONTHS=$CURRENT_YM $LAST_YM" >> $GITHUB_ENV
           fi
       
       - name: Parse spark-joy-digest files
-        run: node parse-spark-joy.js "$YEAR_MONTH"
+        run: node parse-spark-joy.js $YEAR_MONTHS
 
